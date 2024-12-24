@@ -106,3 +106,60 @@ func GetAllProducts(c *fiber.Ctx) error {
 		"user_id": userID, // Mengembalikan user_id yang terkait dengan token
 	})
 }
+
+func GetProductsUnderPrice(c *fiber.Ctx) error {
+	priceLimit := 100000.0
+
+	collection := config.MongoClient.Database("ecommerce").Collection("products")
+	cursor, err := collection.Find(c.Context(), bson.M{"price": bson.M{"$lte": priceLimit}})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Failed to fetch products under price limit",
+		})
+	}
+	defer cursor.Close(c.Context())
+
+	var products []model.Product
+	if err := cursor.All(c.Context(), &products); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Failed to parse products",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": "Products under Rp.100.000 fetched successfully",
+		"data":    products,
+	})
+}
+func GetBestSellers(c *fiber.Ctx) error {
+	collection := config.MongoClient.Database("ecommerce").Collection("products")
+
+	// Filter best sellers: Rating > 4.0 and Reviews > 1000
+	filter := bson.M{
+		"rating":  bson.M{"$gt": 4.0},
+		"reviews": bson.M{"$gt": 1000},
+	}
+
+	cursor, err := collection.Find(context.Background(), filter)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to fetch best sellers",
+		})
+	}
+	defer cursor.Close(context.Background())
+
+	var products []model.Product
+	if err := cursor.All(context.Background(), &products); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to parse best sellers",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Best sellers fetched successfully",
+		"data":    products,
+	})
+}

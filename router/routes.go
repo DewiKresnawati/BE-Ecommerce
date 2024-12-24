@@ -14,4 +14,11 @@ func SetupRoutes(app *fiber.App) {
 	// Product routes
 	app.Post("/products", handler.CreateProduct)
 	app.Get("/products", handler.GetAllProducts)
+	app.Get("/products/under100k", handler.GetProductsUnderPrice)
+	app.Get("/products/best-sellers", handler.GetBestSellers)
+
+	app.Post("/cart", handler.AddToCart)
+
+	app.Post("/favorites", handler.AddToFavorites)
+
 }
