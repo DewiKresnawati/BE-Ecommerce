@@ -8,7 +8,7 @@ require (
 	go.mongodb.org/mongo-driver v1.17.1
 )
 
-require github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
+require github.com/golang-jwt/jwt/v4 v4.5.1
 
 require (
 	github.com/andybalholm/brotli v1.0.5 // indirect

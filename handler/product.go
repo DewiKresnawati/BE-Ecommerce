@@ -3,12 +3,11 @@ package handler
 import (
 	"be_ecommerce/config"
 	"be_ecommerce/model"
-	"be_ecommerce/utils"
 	"context"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // CreateProduct handles creating a new product
@@ -16,72 +15,168 @@ func CreateProduct(c *fiber.Ctx) error {
 	var product model.Product
 	if err := c.BodyParser(&product); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Error parsing request body",
+			"message": "Invalid request body",
 		})
 	}
 
-	collection := config.MongoClient.Database("ecommerce").Collection("products")
-	result, err := collection.InsertOne(context.Background(), product)
+	// Validasi SellerID
+	if product.SellerID.IsZero() {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Seller ID is required",
+		})
+	}
+
+	// Periksa apakah seller valid dan tokonya aktif
+	userCollection := config.MongoClient.Database("ecommerce").Collection("users")
+	var seller model.User
+	err := userCollection.FindOne(context.Background(), bson.M{"_id": product.SellerID}).Decode(&seller)
 	if err != nil {
-		// Menangani error jika produk sudah ada (misalnya berdasarkan nama atau kategori)
-		if strings.Contains(err.Error(), "duplicate key error") {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "Product already exists",
-			})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Seller ID",
+		})
+	}
+
+	if seller.StoreStatus == nil || *seller.StoreStatus != "approved" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Store is not active or approved",
+		})
+	}
+
+	// Validasi CategoryID dan SubCategoryID
+	categoryCollection := config.MongoClient.Database("ecommerce").Collection("categories")
+	var category model.Category
+	err = categoryCollection.FindOne(context.Background(), bson.M{"_id": product.CategoryID}).Decode(&category)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Category ID",
+		})
+	}
+
+	// Periksa apakah SubCategoryID valid dalam kategori ini
+	subCategoryExists := false
+	for _, subCat := range category.SubCategories {
+		if subCat.ID == product.SubCategoryID {
+			subCategoryExists = true
+			break
 		}
+	}
+	if !subCategoryExists {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Sub-Category ID",
+		})
+	}
+
+	// Simpan produk ke database
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+	product.ID = primitive.NewObjectID()
+	result, err := productCollection.InsertOne(context.Background(), product)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Error saving product to database",
 		})
 	}
 
-	// Kembalikan response dengan ID produk yang baru saja disimpan
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message":    "Product created successfully",
-		"product_id": result.InsertedID, // ID produk yang baru saja disimpan
+		"product_id": result.InsertedID,
 	})
 }
 
+func GetProductDetail(c *fiber.Ctx) error {
+	productID := c.Params("id")
+
+	// Konversi productID ke ObjectID
+	objectID, err := primitive.ObjectIDFromHex(productID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid product ID format",
+		})
+	}
+
+	// Ambil produk dari database
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+	var product model.Product
+	err = productCollection.FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&product)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Product not found",
+		})
+	}
+
+	// Ambil detail toko berdasarkan SellerID
+	userCollection := config.MongoClient.Database("ecommerce").Collection("users")
+	var seller model.User
+	err = userCollection.FindOne(context.Background(), bson.M{"_id": product.SellerID}).Decode(&seller)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Seller not found",
+		})
+	}
+
+	// Pastikan toko aktif (store_status == "approved")
+	if seller.StoreStatus != nil && *seller.StoreStatus != "approved" {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Store is not active",
+		})
+	}
+
+	// Ambil detail kategori dan sub-kategori
+	categoryCollection := config.MongoClient.Database("ecommerce").Collection("categories")
+	var category model.Category
+	err = categoryCollection.FindOne(context.Background(), bson.M{"_id": product.CategoryID}).Decode(&category)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Category not found",
+		})
+	}
+
+	// Cari sub-kategori dalam kategori
+	var subCategoryName string
+	for _, subCat := range category.SubCategories {
+		if subCat.ID == product.SubCategoryID {
+			subCategoryName = subCat.Name
+			break
+		}
+	}
+	if subCategoryName == "" {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Sub-category not found",
+		})
+	}
+
+	// Gabungkan data produk, kategori, dan toko
+	response := fiber.Map{
+		"product": fiber.Map{
+			"id":             product.ID,
+			"name":           product.Name,
+			"price":          product.Price,
+			"discount":       product.Discount,
+			"category":       category.Name,
+			"sub_category":   subCategoryName,
+			"description":    product.Description,
+			"image":          product.Image,
+			"rating":         product.Rating,
+			"reviews":        product.Reviews,
+		},
+		"store": fiber.Map{
+			"store_name":   seller.StoreInfo.StoreName,
+			"full_address": seller.StoreInfo.FullAddress,
+			"seller_email": seller.Email,
+			"store_status": seller.StoreStatus,
+			"seller_id":    seller.ID,
+		},
+	}
+
+	return c.JSON(response)
+}
+
+
 // GetAllProducts fetches all products
 func GetAllProducts(c *fiber.Ctx) error {
-	// Mendapatkan Authorization header
-	authHeader := c.Get("Authorization")
-	if authHeader == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Authorization token is missing",
-		})
-	}
-
-	// Memisahkan Bearer dan token
-	authParts := strings.Split(authHeader, "Bearer ")
-	if len(authParts) != 2 {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Invalid authorization token format",
-		})
-	}
-	tokenString := authParts[1]
-
-	// Memverifikasi token
-	claims, err := utils.ValidateJWT(tokenString)
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Invalid or expired token",
-		})
-	}
-
-	// Mendapatkan user_id dari klaim
-	userID, ok := claims["user_id"].(string)
-	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Invalid token claims",
-		})
-	}
-
-	// Mengambil produk dari MongoDB
+	// Ambil koleksi produk dari MongoDB
 	collection := config.MongoClient.Database("ecommerce").Collection("products")
+
+	// Ambil semua produk dari koleksi
 	cursor, err := collection.Find(c.Context(), bson.M{})
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -91,6 +186,7 @@ func GetAllProducts(c *fiber.Ctx) error {
 	}
 	defer cursor.Close(c.Context())
 
+	// Decode produk ke slice
 	var products []model.Product
 	if err := cursor.All(c.Context(), &products); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -99,11 +195,11 @@ func GetAllProducts(c *fiber.Ctx) error {
 		})
 	}
 
+	// Kembalikan daftar produk
 	return c.JSON(fiber.Map{
 		"status":  "success",
 		"message": "Products fetched successfully",
 		"data":    products,
-		"user_id": userID, // Mengembalikan user_id yang terkait dengan token
 	})
 }
 

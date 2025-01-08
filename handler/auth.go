@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -20,6 +21,15 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
+	// Check if email is already registered
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	existingUser := collection.FindOne(context.Background(), bson.M{"email": user.Email})
+	if existingUser.Err() == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Email already registered",
+		})
+	}
+
 	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -29,8 +39,20 @@ func Register(c *fiber.Ctx) error {
 	}
 	user.Password = string(hashedPassword)
 
+	// Set default fields
+	user.ID = primitive.NewObjectID()
+	user.Roles = []string{"customer"} // Default role is "customer"
+
+	// Check if user wants to register as admin
+	if c.Query("role") == "admin" { // Use query parameter to specify role
+		user.Roles = []string{"admin"}
+	} else if c.Query("role") != "" && c.Query("role") != "customer" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid role provided",
+		})
+	}
+
 	// Insert user into MongoDB
-	collection := config.MongoClient.Database("ecommerce").Collection("users")
 	_, err = collection.InsertOne(context.Background(), user)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

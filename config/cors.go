@@ -7,7 +7,7 @@ import (
 // SetupCORS mengatur middleware CORS dengan konfigurasi khusus
 func SetupCORS() cors.Config {
 	return cors.Config{
-		AllowOrigins:     "*",              // Mengizinkan semua origin
+		AllowOrigins: "http://127.0.0.1:5503",             // Mengizinkan semua origin
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS", // Metode yang diizinkan
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowCredentials: true, // Mengizinkan credentials seperti cookies
