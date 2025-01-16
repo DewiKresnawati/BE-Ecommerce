@@ -39,6 +39,8 @@ func SetupRoutes(app *fiber.App) {
 	// Customer applies as seller
 	app.Post("/apply-as-seller", handler.ApplyAsSeller)
 
+
 	// Admin approves/rejects seller application
 	app.Post("/admin/approve-seller", handler.ApproveSeller)
+
 }
