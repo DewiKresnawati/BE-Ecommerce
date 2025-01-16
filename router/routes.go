@@ -43,4 +43,6 @@ func SetupRoutes(app *fiber.App) {
 	// Admin approves/rejects seller application
 	app.Post("/admin/approve-seller", handler.ApproveSeller)
 
+	// routes untuk pembayaran
+	app.Post("/payment", handler.CreatePayment)
 }
