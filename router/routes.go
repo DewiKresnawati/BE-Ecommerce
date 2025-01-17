@@ -16,7 +16,6 @@ func SetupRoutes(app *fiber.App) {
 	app.Get("/products", handler.GetAllProducts)
 	app.Get("/products/under100k", handler.GetProductsUnderPrice)
 	app.Get("/products/best-sellers", handler.GetBestSellers)
-	app.Post("/products", handler.CreateProduct)
 	app.Get("/products/:id", handler.GetProductDetail)
 	app.Get("/products/:product_id/rating", handler.GetProductRating)
 
@@ -39,14 +38,36 @@ func SetupRoutes(app *fiber.App) {
 	// Customer applies as seller
 	app.Post("/apply-as-seller", handler.ApplyAsSeller)
 
-
 	// Admin approves/rejects seller application
 	app.Post("/admin/approve-seller", handler.ApproveSeller)
+
+	// Customer Routes
+	app.Get("/customers", handler.GetCustomers)
+	app.Post("/customers", handler.CreateCustomer)
+	app.Put("/customers/update", handler.UpdateCustomer)
+	app.Delete("/customers/:id", handler.DeleteCustomer)
+
+	// seller Routes
+	app.Get("/sellers", handler.GetSellers)
+	app.Post("/sellers", handler.CreateSeller)
+	app.Put("/sellers/:id", handler.UpdateSeller)
+	app.Delete("/sellers/:id", handler.DeleteSeller)
+	app.Get("/seller/products", handler.GetProductsByUserID)
+	app.Post("/seller/products", handler.CreateProductForSeller)
+
+	// Customer-Seller Routes
+	app.Get("/customer-sellers", handler.GetCustomerSellers)
+	app.Post("/customer-sellers", handler.CreateCustomerSeller)
+	app.Put("/customer-sellers/:id", handler.UpdateCustomerSeller)
+	app.Delete("/customer-sellers/:id", handler.DeleteCustomerSeller)
+
+	// Suspend and Unsuspend User Routes
+	app.Patch("/users/suspend/:id", handler.SuspendUser)
+	app.Patch("/users/unsuspend/:id", handler.UnsuspendUser)
 
 	// routes untuk pembayaran
 	app.Post("/payment", handler.CreatePayment)
 
 	// Endpoint untuk mendapatkan produk berdasarkan ID
 	app.Get("/products/:id", handler.GetProductByID)
-
 }
