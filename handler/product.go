@@ -3,7 +3,9 @@ package handler
 import (
 	"be_ecommerce/config"
 	"be_ecommerce/model"
+	"be_ecommerce/utils"
 	"context"
+	"log"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
@@ -147,16 +149,16 @@ func GetProductDetail(c *fiber.Ctx) error {
 	// Gabungkan data produk, kategori, dan toko
 	response := fiber.Map{
 		"product": fiber.Map{
-			"id":             product.ID,
-			"name":           product.Name,
-			"price":          product.Price,
-			"discount":       product.Discount,
-			"category":       category.Name,
-			"sub_category":   subCategoryName,
-			"description":    product.Description,
-			"image":          product.Image,
-			"rating":         product.Rating,
-			"reviews":        product.Reviews,
+			"id":           product.ID,
+			"name":         product.Name,
+			"price":        product.Price,
+			"discount":     product.Discount,
+			"category":     category.Name,
+			"sub_category": subCategoryName,
+			"description":  product.Description,
+			"image":        product.Image,
+			"rating":       product.Rating,
+			"reviews":      product.Reviews,
 		},
 		"store": fiber.Map{
 			"store_name":   seller.StoreInfo.StoreName,
@@ -169,7 +171,6 @@ func GetProductDetail(c *fiber.Ctx) error {
 
 	return c.JSON(response)
 }
-
 
 // GetAllProducts fetches all products
 func GetAllProducts(c *fiber.Ctx) error {
@@ -257,5 +258,154 @@ func GetBestSellers(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Best sellers fetched successfully",
 		"data":    products,
+	})
+}
+
+func GetProductsByUserID(c *fiber.Ctx) error {
+	// Ambil user_id dari parameter query atau autentikasi JWT
+	userIDParam := c.Query("user_id")
+	if userIDParam == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "User ID is required",
+		})
+	}
+
+	// Konversi user_id ke ObjectID
+	userID, err := primitive.ObjectIDFromHex(userIDParam)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid User ID format",
+		})
+	}
+
+	// Ambil koleksi produk
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+
+	// Filter produk berdasarkan user_id
+	filter := bson.M{"seller_id": userID}
+	cursor, err := productCollection.Find(c.Context(), filter)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to fetch products",
+			"error":   err.Error(),
+		})
+	}
+	defer cursor.Close(c.Context())
+
+	// Decode produk
+	var products []model.Product
+	if err := cursor.All(c.Context(), &products); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to parse products",
+			"error":   err.Error(),
+		})
+	}
+
+	// Kembalikan data produk
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": "Products fetched successfully",
+		"data":    products,
+	})
+}
+func CreateProductForSeller(c *fiber.Ctx) error {
+	// Ambil token dari header Authorization
+	token := c.Get("Authorization")
+	if token == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Unauthorized: Missing token",
+		})
+	}
+
+	// Validasi token dan ambil klaim
+	claims, err := utils.ValidateJWT(token[7:]) // Hapus prefix "Bearer "
+	if err != nil {
+		log.Println("Error validating token:", err)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Unauthorized: Invalid token",
+		})
+	}
+
+	// Ambil user_id dari klaim
+	userID, ok := claims["user_id"].(string)
+	if !ok || userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Unauthorized: Invalid user ID",
+		})
+	}
+
+	// Konversi user_id ke ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid User ID format",
+		})
+	}
+
+	// Periksa apakah user adalah seller
+	userCollection := config.MongoClient.Database("ecommerce").Collection("users")
+	var seller model.User
+	err = userCollection.FindOne(context.Background(), bson.M{"_id": objectID, "roles": "seller"}).Decode(&seller)
+	if err != nil {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"message": "Forbidden: User is not a seller",
+		})
+	}
+
+	// Periksa apakah toko aktif
+	if seller.StoreStatus == nil || *seller.StoreStatus != "approved" {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"message": "Forbidden: Store is not active or approved",
+		})
+	}
+
+	// Parse request body
+	var product model.Product
+	if err := c.BodyParser(&product); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
+
+	// Tambahkan SellerID ke produk
+	product.SellerID = objectID
+
+	// Validasi CategoryID dan SubCategoryID
+	categoryCollection := config.MongoClient.Database("ecommerce").Collection("categories")
+	var category model.Category
+	err = categoryCollection.FindOne(context.Background(), bson.M{"_id": product.CategoryID}).Decode(&category)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Category ID",
+		})
+	}
+
+	// Periksa apakah SubCategoryID valid
+	subCategoryExists := false
+	for _, subCat := range category.SubCategories {
+		if subCat.ID == product.SubCategoryID {
+			subCategoryExists = true
+			break
+		}
+	}
+	if !subCategoryExists {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Sub-Category ID",
+		})
+	}
+
+	// Simpan produk ke database
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+	product.ID = primitive.NewObjectID()
+	result, err := productCollection.InsertOne(context.Background(), product)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Error saving product to database",
+		})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"message":    "Product created successfully",
+		"product_id": result.InsertedID,
 	})
 }
