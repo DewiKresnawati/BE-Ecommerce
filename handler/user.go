@@ -23,8 +23,9 @@ func getUserCollection() *mongo.Collection {
 func GetCustomers(c *fiber.Ctx) error {
 	collection := getUserCollection()
 
-	// Query untuk mendapatkan semua pelanggan
-	cursor, err := collection.Find(context.Background(), bson.M{})
+	// Query untuk mendapatkan semua pelanggan dengan role "customer"
+	filter := bson.M{"roles": "customer"}
+	cursor, err := collection.Find(context.Background(), filter)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Error fetching customers",
@@ -40,23 +41,20 @@ func GetCustomers(c *fiber.Ctx) error {
 		})
 	}
 
-	// Transform data untuk menambahkan informasi suspend
+	// Transform data untuk menyederhanakan output
 	transformedCustomers := make([]map[string]interface{}, 0)
 	for _, customer := range customers {
 		transformed := map[string]interface{}{
-			"id":           customer["_id"],
-			"username":     customer["username"],
-			"email":        customer["email"],
-			"roles":        customer["roles"],
-			"store_status": customer["store_status"],
-			"suspended":    false, // Default
+			"id":        customer["_id"],
+			"username":  customer["username"],
+			"email":     customer["email"],
+			"roles":     customer["roles"],
+			"suspended": false, // Default jika tidak ada informasi tentang suspend
 		}
 
-		// Cek apakah field `store_info` ada dan memiliki field `suspended`
-		if storeInfo, ok := customer["store_info"].(map[string]interface{}); ok {
-			if suspended, exists := storeInfo["suspended"].(bool); exists {
-				transformed["suspended"] = suspended
-			}
+		// Hanya tambahkan informasi `suspended` jika relevan
+		if suspended, ok := customer["suspended"].(bool); ok {
+			transformed["suspended"] = suspended
 		}
 
 		transformedCustomers = append(transformedCustomers, transformed)
@@ -206,50 +204,111 @@ func DeleteCustomer(c *fiber.Ctx) error {
 // CRUD for Sellers
 func GetSellers(c *fiber.Ctx) error {
 	collection := getUserCollection()
-	if collection == nil {
-		log.Println("Error: User collection is nil")
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Error accessing user collection",
-		})
-	}
 
-	cursor, err := collection.Find(context.Background(), bson.M{"roles": "seller"})
+	// Query untuk mendapatkan semua seller dengan role "seller"
+	filter := bson.M{"roles": "seller"}
+	cursor, err := collection.Find(context.Background(), filter)
 	if err != nil {
-		log.Println("Error fetching sellers from MongoDB:", err)
+		log.Println("Error fetching sellers:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Error fetching sellers",
 		})
 	}
+	defer cursor.Close(context.Background())
 
-	var sellers []model.User
-	if err = cursor.All(context.Background(), &sellers); err != nil {
+	// Parsing hasil query ke dalam slice
+	var sellers []bson.M
+	if err := cursor.All(context.Background(), &sellers); err != nil {
 		log.Println("Error decoding sellers:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Error decoding sellers",
 		})
 	}
 
-	log.Println("Sellers fetched successfully:", sellers)
-
-	formattedSellers := make([]map[string]string, 0)
+	// Transform data untuk menyederhanakan output
+	transformedSellers := make([]map[string]interface{}, 0)
 	for _, seller := range sellers {
-		name := seller.Username
-		if seller.StoreInfo != nil && seller.StoreInfo.StoreName != "" {
-			name = seller.StoreInfo.StoreName
+		transformed := map[string]interface{}{
+			"id":        seller["_id"],
+			"username":  seller["username"],
+			"email":     seller["email"],
+			"roles":     seller["roles"],
+			"suspended": false, // Default jika tidak ada informasi tentang suspend
 		}
 
-		formattedSellers = append(formattedSellers, map[string]string{
-			"id":   seller.ID.Hex(),
-			"name": name,
+		// Hanya tambahkan informasi `suspended` jika relevan
+		if suspended, ok := seller["suspended"].(bool); ok {
+			transformed["suspended"] = suspended
+		}
+
+		transformedSellers = append(transformedSellers, transformed)
+	}
+
+	// Kembalikan data ke frontend
+	return c.JSON(fiber.Map{
+		"data":    transformedSellers,
+		"message": "Sellers fetched successfully",
+	})
+}
+func GetSellerByID(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	// Konversi ID ke ObjectID MongoDB
+	userID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid seller ID",
 		})
 	}
 
-	log.Println("Formatted sellers:", formattedSellers)
+	// Cari seller berdasarkan ID dan role "seller"
+	collection := getUserCollection()
+	var seller model.User
+	err = collection.FindOne(context.Background(), bson.M{"_id": userID, "roles": "seller"}).Decode(&seller)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Seller not found",
+		})
+	}
 
-	return c.JSON(fiber.Map{
-		"data":    formattedSellers,
-		"message": "Sellers fetched successfully",
-	})
+	// Siapkan respons
+	response := fiber.Map{
+		"id":       seller.ID.Hex(),
+		"username": seller.Username,
+		"email":    seller.Email,
+		"store_name": func() string {
+			if seller.StoreInfo != nil {
+				return seller.StoreInfo.StoreName
+			}
+			return ""
+		}(),
+		"full_address": func() string {
+			if seller.StoreInfo != nil {
+				return seller.StoreInfo.FullAddress
+			}
+			return ""
+		}(),
+		"nik": func() string {
+			if seller.StoreInfo != nil {
+				return seller.StoreInfo.NIK
+			}
+			return ""
+		}(),
+		"store_status": func() string {
+			if seller.StoreStatus != nil {
+				return *seller.StoreStatus
+			}
+			return "unknown"
+		}(),
+		"suspended": func() bool {
+			if seller.StoreStatus != nil && *seller.StoreStatus == "suspended" {
+				return true
+			}
+			return false
+		}(),
+	}
+
+	return c.JSON(response)
 }
 
 func CreateSeller(c *fiber.Ctx) error {
@@ -472,5 +531,78 @@ func UnsuspendUser(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "User account unsuspended successfully",
+	})
+}
+func SuspendSeller(c *fiber.Ctx) error {
+	sellerID := c.Params("id")
+	log.Println("Suspend request received for seller ID:", sellerID)
+
+	objectID, err := primitive.ObjectIDFromHex(sellerID)
+	if err != nil {
+		log.Println("Invalid seller ID format:", sellerID)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid seller ID format",
+		})
+	}
+
+	collection := getUserCollection()
+	filter := bson.M{"_id": objectID, "roles": bson.M{"$all": []string{"seller"}}}
+	update := bson.M{"$set": bson.M{"suspended": true}}
+
+	result, err := collection.UpdateOne(context.Background(), filter, update)
+	if err != nil {
+		log.Println("Error suspending seller:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to suspend seller",
+		})
+	}
+
+	if result.ModifiedCount == 0 {
+		log.Println("Seller not found or already suspended:", sellerID)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Seller not found or already suspended",
+		})
+	}
+
+	log.Println("Seller suspended successfully:", sellerID)
+	return c.JSON(fiber.Map{
+		"message": "Seller suspended successfully",
+	})
+}
+
+func UnsuspendSeller(c *fiber.Ctx) error {
+	sellerID := c.Params("id")
+	log.Println("Received unsuspend request for seller ID:", sellerID)
+
+	objectID, err := primitive.ObjectIDFromHex(sellerID)
+	if err != nil {
+		log.Println("Invalid ObjectID:", sellerID)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid seller ID format",
+		})
+	}
+
+	collection := getUserCollection()
+	filter := bson.M{"_id": objectID, "roles": bson.M{"$all": []string{"seller"}}}
+	update := bson.M{"$set": bson.M{"suspended": false}}
+
+	result, err := collection.UpdateOne(context.Background(), filter, update)
+	if err != nil {
+		log.Println("Database error:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to unsuspend seller",
+		})
+	}
+
+	if result.ModifiedCount == 0 {
+		log.Println("No matching seller found or already unsuspended:", sellerID)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Seller not found or already unsuspended",
+		})
+	}
+
+	log.Println("Seller unsuspended successfully:", sellerID)
+	return c.JSON(fiber.Map{
+		"message": "Seller unsuspended successfully",
 	})
 }

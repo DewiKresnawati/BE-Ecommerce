@@ -70,4 +70,10 @@ func SetupRoutes(app *fiber.App) {
 
 	// Endpoint untuk mendapatkan produk berdasarkan ID
 	app.Get("/products/:id", handler.GetProductByID)
+
+	app.Get("/sellers/:id", handler.GetSellerByID)
+
+	app.Put("/sellers/:id/suspend", handler.SuspendSeller)
+	app.Put("/sellers/:id/unsuspend", handler.UnsuspendSeller)
+
 }
