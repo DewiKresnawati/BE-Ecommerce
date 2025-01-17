@@ -64,39 +64,67 @@ func AddToCart(c *fiber.Ctx) error {
 
 // FetchCart mengambil data keranjang berdasarkan user_id
 func FetchCart(c *fiber.Ctx) error {
-	// Ambil user_id dari query atau body
-	userID := c.Query("user_id")
-	if userID == "" {
-		var body struct {
-			UserID string `json:"user_id"`
-		}
-		if err := c.BodyParser(&body); err != nil || body.UserID == "" {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "user_id is required"})
-		}
-		userID = body.UserID
-	}
+    // Ambil user_id dari query atau body
+    userID := c.Query("user_id")
+    if userID == "" {
+        var body struct {
+            UserID string `json:"user_id"`
+        }
+        if err := c.BodyParser(&body); err != nil || body.UserID == "" {
+            return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "user_id is required"})
+        }
+        userID = body.UserID
+    }
 
-	// Ambil koleksi keranjang
-	collection := config.MongoClient.Database("ecommerce").Collection("carts")
+    // Ambil koleksi keranjang
+    cartCollection := config.MongoClient.Database("ecommerce").Collection("carts")
+    productCollection := config.MongoClient.Database("ecommerce").Collection("products")
 
-	// Cari keranjang berdasarkan user_id
-	var cart model.Cart
-	err := collection.FindOne(context.Background(), bson.M{"user_id": userID}).Decode(&cart)
-	if err == mongo.ErrNoDocuments {
-		// Jika keranjang tidak ditemukan, kembalikan keranjang kosong
-		return c.JSON(fiber.Map{
-			"user_id":  userID,
-			"products": []model.CartItem{},
-			"message":  "Cart is empty",
-		})
-	} else if err != nil {
-		// Jika terjadi kesalahan, kembalikan status error
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to fetch cart"})
-	}
+    // Cari keranjang berdasarkan user_id
+    var cart model.Cart
+    err := cartCollection.FindOne(context.Background(), bson.M{"user_id": userID}).Decode(&cart)
+    if err == mongo.ErrNoDocuments {
+        // Jika keranjang tidak ditemukan, kembalikan keranjang kosong
+        return c.JSON(fiber.Map{
+            "products": []fiber.Map{},
+        })
+    } else if err != nil {
+        // Jika terjadi kesalahan, kembalikan status error
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to fetch cart"})
+    }
 
-	// Kembalikan keranjang yang ditemukan
-	return c.JSON(cart)
+    // Format ulang data produk sebelum dikembalikan
+    products := make([]fiber.Map, len(cart.Products))
+    for i, item := range cart.Products {
+        // Ambil data produk berdasarkan product_id
+        var product model.Product
+        err := productCollection.FindOne(context.Background(), bson.M{"_id": item.ProductID}).Decode(&product)
+        if err != nil {
+            // Jika produk tidak ditemukan, gunakan data default
+            products[i] = fiber.Map{
+                "product_id":   item.ProductID,
+                "product_name": "Unknown Product",
+                "price":        item.Price,
+                "quantity":     item.Quantity,
+            }
+        } else {
+            // Jika produk ditemukan, gunakan data dari database
+            products[i] = fiber.Map{
+				"product_id":   product.ID.Hex(),
+				"product_name": product.Name,
+				"price":        product.Price,
+				"quantity":     item.Quantity,
+				"image":        product.Image,
+			}			
+        }
+    }
+
+    // Kembalikan hanya properti "products"
+    return c.JSON(fiber.Map{
+        "products": products,
+    })
 }
+
 
 func AddFavoriteToCart(c *fiber.Ctx) error {
 	var request struct {

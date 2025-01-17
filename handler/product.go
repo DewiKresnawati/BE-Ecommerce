@@ -259,3 +259,4 @@ func GetBestSellers(c *fiber.Ctx) error {
 		"data":    products,
 	})
 }
+

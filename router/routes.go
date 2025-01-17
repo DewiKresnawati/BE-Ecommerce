@@ -45,4 +45,8 @@ func SetupRoutes(app *fiber.App) {
 
 	// routes untuk pembayaran
 	app.Post("/payment", handler.CreatePayment)
+
+	// Endpoint untuk mendapatkan produk berdasarkan ID
+	app.Get("/products/:id", handler.GetProductByID)
+
 }
