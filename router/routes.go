@@ -65,4 +65,7 @@ func SetupRoutes(app *fiber.App) {
 	app.Patch("/users/suspend/:id", handler.SuspendUser)
 	app.Patch("/users/unsuspend/:id", handler.UnsuspendUser)
 
+	// routes untuk pembayaran
+	app.Post("/payment", handler.CreatePayment)
+
 }
