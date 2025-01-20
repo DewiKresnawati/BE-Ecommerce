@@ -205,7 +205,7 @@ func DeleteCustomer(c *fiber.Ctx) error {
 func GetSellers(c *fiber.Ctx) error {
 	collection := getUserCollection()
 
-	// Query untuk mendapatkan semua seller dengan role "seller"
+	// Query to fetch all users with the role "seller"
 	filter := bson.M{"roles": "seller"}
 	cursor, err := collection.Find(context.Background(), filter)
 	if err != nil {
@@ -216,7 +216,7 @@ func GetSellers(c *fiber.Ctx) error {
 	}
 	defer cursor.Close(context.Background())
 
-	// Parsing hasil query ke dalam slice
+	// Parse query results into a slice
 	var sellers []bson.M
 	if err := cursor.All(context.Background(), &sellers); err != nil {
 		log.Println("Error decoding sellers:", err)
@@ -225,31 +225,42 @@ func GetSellers(c *fiber.Ctx) error {
 		})
 	}
 
-	// Transform data untuk menyederhanakan output
+	// Transform the data for simplified output
 	transformedSellers := make([]map[string]interface{}, 0)
 	for _, seller := range sellers {
 		transformed := map[string]interface{}{
-			"id":        seller["_id"],
-			"username":  seller["username"],
-			"email":     seller["email"],
-			"roles":     seller["roles"],
-			"suspended": false, // Default jika tidak ada informasi tentang suspend
-		}
-
-		// Hanya tambahkan informasi `suspended` jika relevan
-		if suspended, ok := seller["suspended"].(bool); ok {
-			transformed["suspended"] = suspended
+			"id":           seller["_id"],
+			"username":     seller["username"],
+			"email":        seller["email"],
+			"roles":        seller["roles"],
+			"store_status": seller["store_status"],
+			"store_info": map[string]interface{}{
+				"store_name":   getStringOrDefault(seller, "store_info", "store_name"),
+				"full_address": getStringOrDefault(seller, "store_info", "full_address"),
+				"nik":          getStringOrDefault(seller, "store_info", "nik"),
+			},
 		}
 
 		transformedSellers = append(transformedSellers, transformed)
 	}
 
-	// Kembalikan data ke frontend
+	// Return data to the frontend
 	return c.JSON(fiber.Map{
 		"data":    transformedSellers,
 		"message": "Sellers fetched successfully",
 	})
 }
+
+// Helper function to safely get nested strings
+func getStringOrDefault(doc bson.M, key string, nestedKey string) string {
+	if outer, ok := doc[key].(bson.M); ok {
+		if value, ok := outer[nestedKey].(string); ok {
+			return value
+		}
+	}
+	return ""
+}
+
 func GetSellerByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 
