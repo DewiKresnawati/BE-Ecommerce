@@ -5,76 +5,125 @@ import (
 	"be_ecommerce/model"
 	"be_ecommerce/utils"
 	"context"
+	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// CreateProduct handles creating a new product
 func CreateProduct(c *fiber.Ctx) error {
-	var product model.Product
-	if err := c.BodyParser(&product); err != nil {
+	// Parse multipart form
+	form, err := c.MultipartForm()
+	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid request body",
+			"message": "Invalid form data",
+			"error":   err.Error(),
 		})
 	}
 
-	// Validasi SellerID
-	if product.SellerID.IsZero() {
+	// Extract fields and validate
+	name := form.Value["name"]
+	if len(name) == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Seller ID is required",
+			"message": "Product name is required",
 		})
 	}
 
-	// Periksa apakah seller valid dan tokonya aktif
+	price, err := strconv.ParseInt(form.Value["price"][0], 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid price format",
+			"error":   err.Error(),
+		})
+	}
+
+	discount, err := strconv.ParseInt(form.Value["discount"][0], 10, 64)
+	if err != nil {
+		discount = 0 // Default discount jika tidak valid
+	}
+
+	sellerID, err := primitive.ObjectIDFromHex(form.Value["seller_id"][0])
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Seller ID format",
+			"error":   err.Error(),
+		})
+	}
+
+	categoryID, err := primitive.ObjectIDFromHex(form.Value["category_id"][0])
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Category ID format",
+			"error":   err.Error(),
+		})
+	}
+
+	subCategoryID, err := primitive.ObjectIDFromHex(form.Value["sub_category_id"][0])
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid Sub-Category ID format",
+			"error":   err.Error(),
+		})
+	}
+
+	description := form.Value["description"]
+	if len(description) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Description is required",
+		})
+	}
+
+	// Handle file upload
+	var imagePath string
+	fileHeaders := form.File["image"]
+	if len(fileHeaders) > 0 {
+		file := fileHeaders[0]
+		imagePath = fmt.Sprintf("./uploads/%s", file.Filename)
+
+		// Save image file
+		if err := c.SaveFile(file, imagePath); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to save image",
+				"error":   err.Error(),
+			})
+		}
+	} else {
+		imagePath = "" // Default jika tidak ada gambar
+	}
+
+	// Validate seller
 	userCollection := config.MongoClient.Database("ecommerce").Collection("users")
 	var seller model.User
-	err := userCollection.FindOne(context.Background(), bson.M{"_id": product.SellerID}).Decode(&seller)
-	if err != nil {
+	err = userCollection.FindOne(context.Background(), bson.M{"_id": sellerID}).Decode(&seller)
+	if err != nil || seller.StoreStatus == nil || *seller.StoreStatus != "approved" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid Seller ID",
+			"message": "Invalid or inactive seller",
 		})
 	}
 
-	if seller.StoreStatus == nil || *seller.StoreStatus != "approved" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Store is not active or approved",
-		})
+	// Prepare product data
+	product := model.Product{
+		ID:            primitive.NewObjectID(),
+		Name:          name[0],
+		Price:         price,
+		Discount:      discount,
+		SellerID:      sellerID,
+		CategoryID:    categoryID,
+		SubCategoryID: subCategoryID,
+		Description:   description[0],
+		Image:         imagePath,
 	}
 
-	// Validasi CategoryID dan SubCategoryID
-	categoryCollection := config.MongoClient.Database("ecommerce").Collection("categories")
-	var category model.Category
-	err = categoryCollection.FindOne(context.Background(), bson.M{"_id": product.CategoryID}).Decode(&category)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid Category ID",
-		})
-	}
-
-	// Periksa apakah SubCategoryID valid dalam kategori ini
-	subCategoryExists := false
-	for _, subCat := range category.SubCategories {
-		if subCat.ID == product.SubCategoryID {
-			subCategoryExists = true
-			break
-		}
-	}
-	if !subCategoryExists {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid Sub-Category ID",
-		})
-	}
-
-	// Simpan produk ke database
+	// Save product to database
 	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
-	product.ID = primitive.NewObjectID()
 	result, err := productCollection.InsertOne(context.Background(), product)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Error saving product to database",
+			"message": "Failed to save product",
+			"error":   err.Error(),
 		})
 	}
 
@@ -157,8 +206,6 @@ func GetProductDetail(c *fiber.Ctx) error {
 			"sub_category": subCategoryName,
 			"description":  product.Description,
 			"image":        product.Image,
-			"rating":       product.Rating,
-			"reviews":      product.Reviews,
 		},
 		"store": fiber.Map{
 			"store_name":   seller.StoreInfo.StoreName,

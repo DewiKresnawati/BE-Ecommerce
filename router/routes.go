@@ -18,6 +18,7 @@ func SetupRoutes(app *fiber.App) {
 	app.Get("/products/best-sellers", handler.GetBestSellers)
 	app.Get("/products/:id", handler.GetProductDetail)
 	app.Get("/products/:product_id/rating", handler.GetProductRating)
+	app.Static("/uploads", "./uploads")
 
 	app.Post("/categories", handler.AddCategory)        // Tambahkan kategori baru
 	app.Post("/categories/sub", handler.AddSubCategory) // Tambahkan sub-kategori ke kategori
@@ -40,6 +41,7 @@ func SetupRoutes(app *fiber.App) {
 
 	// Admin approves/rejects seller application
 	app.Post("/admin/approve-seller", handler.ApproveSeller)
+	app.Post("/admin/reject-seller", handler.RejectSeller)
 
 	// Customer Routes
 	app.Get("/customers", handler.GetCustomers)
