@@ -14,8 +14,6 @@ func SetupRoutes(app *fiber.App) {
 	// Product routes
 	app.Post("/products", handler.CreateProduct)
 	app.Get("/products", handler.GetAllProducts)
-	app.Get("/products/under100k", handler.GetProductsUnderPrice)
-	app.Get("/products/best-sellers", handler.GetBestSellers)
 	app.Get("/products/:id", handler.GetProductDetail)
 	app.Get("/products/:product_id/rating", handler.GetProductRating)
 	app.Static("/uploads", "./uploads")
@@ -31,10 +29,7 @@ func SetupRoutes(app *fiber.App) {
 
 	app.Post("/cart", handler.AddToCart)
 	app.Get("/cart", handler.FetchCart)
-	app.Post("/favorites-to-cart", handler.AddFavoriteToCart)
-
-	app.Post("/favorites", handler.AddToFavorites)
-	app.Get("/favorites", handler.GetFavorites)
+	app.Post("/cart/update", handler.UpdateCartItem)
 
 	// Customer applies as seller
 	app.Post("/apply-as-seller", handler.ApplyAsSeller)
@@ -63,10 +58,6 @@ func SetupRoutes(app *fiber.App) {
 	app.Put("/customer-sellers/:id", handler.UpdateCustomerSeller)
 	app.Delete("/customer-sellers/:id", handler.DeleteCustomerSeller)
 
-	// Suspend and Unsuspend User Routes
-	app.Patch("/users/suspend/:id", handler.SuspendUser)
-	app.Patch("/users/unsuspend/:id", handler.UnsuspendUser)
-
 	// routes untuk pembayaran
 	app.Post("/payment", handler.CreatePayment)
 
@@ -75,7 +66,9 @@ func SetupRoutes(app *fiber.App) {
 
 	app.Get("/sellers/:id", handler.GetSellerByID)
 
-	app.Put("/sellers/:id/suspend", handler.SuspendSeller)
-	app.Put("/sellers/:id/unsuspend", handler.UnsuspendSeller)
+	app.Post("/become-seller", handler.BecomeSeller)
+
+	// Endpoint untuk store
+	app.Get("/stores/:id", handler.GetStoreDetails) // Mendapatkan detail store dan produk terkait
 
 }
