@@ -8,8 +8,8 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // AddToCart menambahkan produk ke keranjang pengguna
@@ -30,7 +30,7 @@ func AddToCart(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid Product ID format"})
 	}
 
-	cartItem.Quantity = 1 // Default jumlah jika tidak diberikan
+	cartItem.Quantity = 1                      // Default jumlah jika tidak diberikan
 	cartItem.ProductID = productObjectID.Hex() // Pastikan format string
 
 	// Ambil koleksi keranjang
@@ -110,22 +110,22 @@ func FetchCart(c *fiber.Ctx) error {
 		if err != nil {
 			// Jika produk tidak ditemukan, gunakan data default
 			products[i] = fiber.Map{
-				"product_id":   item.ProductID,
-				"name":         "Unknown Product",
-				"image":        "/images/default.jpg", // Gambar default jika tidak ditemukan
-				"price":        item.Price,
-				"quantity":     item.Quantity,
-				"total_price":  float64(item.Price) * float64(item.Quantity), // Konversi ke float64
+				"product_id":  item.ProductID,
+				"name":        "Unknown Product",
+				"image":       "/images/default.jpg", // Gambar default jika tidak ditemukan
+				"price":       item.Price,
+				"quantity":    item.Quantity,
+				"total_price": float64(item.Price) * float64(item.Quantity), // Konversi ke float64
 			}
 		} else {
 			// Jika produk ditemukan, gunakan data dari database
 			products[i] = fiber.Map{
-				"product_id":   product.ID.Hex(),
-				"name":         product.Name,
-				"image":        product.Image,
-				"price":        product.Price,
-				"quantity":     item.Quantity,
-				"total_price":  float64(product.Price) * float64(item.Quantity), // Konversi ke float64
+				"product_id":  product.ID.Hex(),
+				"name":        product.Name,
+				"image":       product.Image,
+				"price":       product.Price,
+				"quantity":    item.Quantity,
+				"total_price": float64(product.Price) * float64(item.Quantity), // Konversi ke float64
 			}
 		}
 	}
@@ -138,22 +138,22 @@ func FetchCart(c *fiber.Ctx) error {
 
 // UpdateCartItem memperbarui kuantitas produk dalam keranjang
 func UpdateCartItem(c *fiber.Ctx) error {
-    var request struct {
-        UserID    string `json:"user_id"`
-        ProductID string `json:"product_id"`
-        Quantity  int    `json:"quantity"`
-    }
+	var request struct {
+		UserID    string `json:"user_id"`
+		ProductID string `json:"product_id"`
+		Quantity  int    `json:"quantity"`
+	}
 
-    // Parsing Body
-    if err := c.BodyParser(&request); err != nil {
-        fmt.Println("Error: Failed to parse request body")
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
-    }
+	// Parsing Body
+	if err := c.BodyParser(&request); err != nil {
+		fmt.Println("Error: Failed to parse request body")
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid request body"})
+	}
 
-    // Debugging Input Data
-    fmt.Printf("Request Data: %+v\n", request)
+	// Debugging Input Data
+	fmt.Printf("Request Data: %+v\n", request)
 
-    // Validasi Input
+	// Validasi Input
 	if request.UserID == "" {
 		fmt.Println("Error: Missing user_id")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "User ID is required"})
@@ -165,42 +165,73 @@ func UpdateCartItem(c *fiber.Ctx) error {
 	if request.Quantity < 1 {
 		fmt.Println("Error: Invalid quantity")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Quantity must be greater than 0"})
-	}	
+	}
 
-    // Proses Update Cart
-    collection := config.MongoClient.Database("ecommerce").Collection("carts")
-    var cart model.Cart
-    err := collection.FindOne(context.Background(), bson.M{"user_id": request.UserID}).Decode(&cart)
-    if err == mongo.ErrNoDocuments {
-        fmt.Println("Error: Cart not found for user_id", request.UserID)
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Cart not found"})
-    } else if err != nil {
-        fmt.Printf("Error: Failed to fetch cart: %v\n", err)
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error fetching cart"})
-    }
+	// Proses Update Cart
+	collection := config.MongoClient.Database("ecommerce").Collection("carts")
+	var cart model.Cart
+	err := collection.FindOne(context.Background(), bson.M{"user_id": request.UserID}).Decode(&cart)
+	if err == mongo.ErrNoDocuments {
+		fmt.Println("Error: Cart not found for user_id", request.UserID)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Cart not found"})
+	} else if err != nil {
+		fmt.Printf("Error: Failed to fetch cart: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error fetching cart"})
+	}
 
-    // Update Quantity
-    updated := false
-    for i, item := range cart.Products {
-        if item.ProductID == request.ProductID {
-            cart.Products[i].Quantity = request.Quantity
-            updated = true
-            fmt.Printf("Updated product %s with new quantity %d\n", request.ProductID, request.Quantity)
-            break
-        }
-    }
+	// Update Quantity
+	updated := false
+	for i, item := range cart.Products {
+		if item.ProductID == request.ProductID {
+			cart.Products[i].Quantity = request.Quantity
+			updated = true
+			fmt.Printf("Updated product %s with new quantity %d\n", request.ProductID, request.Quantity)
+			break
+		}
+	}
 
-    if !updated {
-        fmt.Println("Error: Product not found in cart")
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found in cart"})
-    }
+	if !updated {
+		fmt.Println("Error: Product not found in cart")
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found in cart"})
+	}
 
-    // Simpan Perubahan
-    _, err = collection.UpdateOne(context.Background(), bson.M{"user_id": request.UserID}, bson.M{"$set": bson.M{"products": cart.Products}})
-    if err != nil {
-        fmt.Printf("Error: Failed to update cart: %v\n", err)
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update cart"})
-    }
+	// Simpan Perubahan
+	_, err = collection.UpdateOne(context.Background(), bson.M{"user_id": request.UserID}, bson.M{"$set": bson.M{"products": cart.Products}})
+	if err != nil {
+		fmt.Printf("Error: Failed to update cart: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update cart"})
+	}
 
-    return c.JSON(fiber.Map{"message": "Cart updated successfully"})
+	return c.JSON(fiber.Map{"message": "Cart updated successfully"})
+}
+func RemoveFromCart(c *fiber.Ctx) error {
+	var request struct {
+		UserID    string `json:"user_id"`
+		ProductID string `json:"product_id"`
+	}
+
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
+
+	if request.UserID == "" || request.ProductID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "User ID and Product ID are required",
+		})
+	}
+
+	collection := config.MongoClient.Database("ecommerce").Collection("carts")
+	filter := bson.M{"user_id": request.UserID}
+	update := bson.M{"$pull": bson.M{"products": bson.M{"product_id": request.ProductID}}}
+
+	result, err := collection.UpdateOne(context.Background(), filter, update)
+	if err != nil || result.ModifiedCount == 0 {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to remove product from cart",
+		})
+	}
+
+	return c.JSON(fiber.Map{"message": "Product removed successfully"})
 }

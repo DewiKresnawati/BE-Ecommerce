@@ -30,6 +30,7 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/cart", handler.AddToCart)
 	app.Get("/cart", handler.FetchCart)
 	app.Post("/cart/update", handler.UpdateCartItem)
+	app.Post("/cart/delete", handler.RemoveFromCart)
 
 	// Customer applies as seller
 	app.Post("/apply-as-seller", handler.ApplyAsSeller)
