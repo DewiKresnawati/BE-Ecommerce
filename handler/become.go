@@ -4,8 +4,6 @@ import (
 	"be_ecommerce/config"
 	"be_ecommerce/utils"
 	"context"
-	"encoding/base64"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -17,32 +15,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Endpoint untuk menjadi seller
+// BecomeSeller handles requests for a user to become a seller
 func BecomeSeller(c *fiber.Ctx) error {
-	// Struktur payload untuk menerima data dari request
-	type RequestPayload struct {
-		StoreName   string `json:"store_name"`
-		FullAddress string `json:"full_address"`
-		NIK         string `json:"nik"`
-		PhotoBase64 string `json:"photo_base64"`
-	}
-
-	// Parsing body request ke dalam struktur payload
-	var payload RequestPayload
-	if err := c.BodyParser(&payload); err != nil {
-		log.Println("Error parsing request body:", err)
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid request body",
-		})
-	}
-
-	// Validasi input
-	if payload.StoreName == "" || payload.FullAddress == "" || payload.NIK == "" || payload.PhotoBase64 == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "All fields are required (store_name, full_address, nik, photo_base64)",
-		})
-	}
-
 	// Ambil token dari header Authorization
 	authHeader := c.Get("Authorization")
 	if authHeader == "" {
@@ -51,7 +25,7 @@ func BecomeSeller(c *fiber.Ctx) error {
 		})
 	}
 
-	// Hapus prefix "Bearer " dari header
+	// Hapus prefix "Bearer " dari token
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Verifikasi dan parsing token
@@ -81,12 +55,22 @@ func BecomeSeller(c *fiber.Ctx) error {
 		})
 	}
 
-	// Decode foto dari Base64 dan simpan ke file
-	photoData, err := base64.StdEncoding.DecodeString(payload.PhotoBase64)
+	// Ambil data dari form-data
+	storeName := c.FormValue("store_name")
+	fullAddress := c.FormValue("full_address")
+	nik := c.FormValue("nik")
+	file, err := c.FormFile("photo")
 	if err != nil {
-		log.Println("Error decoding base64 photo:", err)
+		log.Println("Error retrieving photo file:", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Photo file is required",
+		})
+	}
+
+	// Validasi input
+	if storeName == "" || fullAddress == "" || nik == "" {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid photo format",
+			"message": "All fields are required (store_name, full_address, nik, photo)",
 		})
 	}
 
@@ -101,9 +85,9 @@ func BecomeSeller(c *fiber.Ctx) error {
 		}
 	}
 
-	// Tentukan nama file
+	// Tentukan nama file dan simpan file
 	photoPath := filepath.Join(uploadDir, userID+".jpg")
-	if err := ioutil.WriteFile(photoPath, photoData, 0644); err != nil {
+	if err := c.SaveFile(file, photoPath); err != nil {
 		log.Println("Error saving photo file:", err)
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to save photo",
@@ -120,9 +104,9 @@ func BecomeSeller(c *fiber.Ctx) error {
 	update := bson.M{
 		"$set": bson.M{
 			"store_info": bson.M{
-				"store_name":   payload.StoreName,
-				"full_address": payload.FullAddress,
-				"nik":          payload.NIK,
+				"store_name":   storeName,
+				"full_address": fullAddress,
+				"nik":          nik,
 				"photo_path":   photoPath, // Simpan path foto
 			},
 			"store_status": "pending", // Status awal aplikasi menjadi seller
@@ -132,7 +116,7 @@ func BecomeSeller(c *fiber.Ctx) error {
 		},
 	}
 
-	// Gunakan koleksi dari fungsi getUserCollection
+	// Gunakan koleksi dari MongoDB
 	collection := config.MongoClient.Database("ecommerce").Collection("users")
 
 	// Update dokumen di MongoDB
@@ -155,7 +139,7 @@ func BecomeSeller(c *fiber.Ctx) error {
 	// Berhasil
 	log.Println("User successfully updated to become seller:", userID)
 	return c.JSON(fiber.Map{
-		"message": "User successfully became a seller",
+		"message":    "User successfully became a seller",
 		"photo_path": photoPath, // Path foto untuk referensi
 	})
 }

@@ -9,9 +9,3 @@ type BecomeSellerRequest struct {
 }
 
 // StoreInfo represents the store information for a seller
-type StoreInfo struct {
-	StoreName   string `json:"store_name" bson:"store_name"`
-	FullAddress string `json:"full_address" bson:"full_address"`
-	NIK         string `json:"nik" bson:"nik"`
-	PhotoSelfie string `json:"photo_selfie" bson:"photo_selfie"`
-}

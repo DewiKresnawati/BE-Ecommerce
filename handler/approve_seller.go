@@ -146,11 +146,9 @@ func RejectSeller(c *fiber.Ctx) error {
 		})
 	}
 
-	// Update store_status and remove "seller" role
-	user.Roles = removeRole(user.Roles, "seller")
+	// Ensure "seller" role is not removed but update the store_status
 	update := bson.M{
 		"store_status": req.Status,
-		"roles":        user.Roles,
 	}
 
 	// Update the user in the database

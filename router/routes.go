@@ -39,6 +39,8 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/admin/approve-seller", handler.ApproveSeller)
 	app.Post("/admin/reject-seller", handler.RejectSeller)
 
+	app.Get("/users/:id", handler.GetUserByID)
+
 	// Customer Routes
 	app.Get("/customers", handler.GetCustomers)
 	app.Post("/customers", handler.CreateCustomer)

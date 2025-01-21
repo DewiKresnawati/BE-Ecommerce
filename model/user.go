@@ -18,11 +18,17 @@ type User struct {
 	StoreStatus *string            `json:"store_status,omitempty" bson:"store_status,omitempty"`
 	StoreInfo   *StoreInfo         `json:"store_info,omitempty" bson:"store_info,omitempty"`
 }
+type StoreInfo struct {
+	StoreName   string `json:"store_name" bson:"store_name"`
+	FullAddress string `json:"full_address" bson:"full_address"`
+	NIK         string `json:"nik" bson:"nik"`
+	PhotoSelfie string `json:"photo_selfie" bson:"photo_selfie"`
+}
 
 // StoreInfo represents additional information for becoming a seller
 type RequestPayload struct {
-    StoreName   string `json:"store_name"`
-    FullAddress string `json:"full_address"`
-    NIK         string `json:"nik"`
-    PhotoBase64 string `json:"photo_base64"`
+	StoreName   string `json:"store_name"`
+	FullAddress string `json:"full_address"`
+	NIK         string `json:"nik"`
+	PhotoBase64 string `json:"photo_base64"`
 }

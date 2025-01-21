@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
@@ -206,7 +207,12 @@ func GetSellers(c *fiber.Ctx) error {
 	collection := getUserCollection()
 
 	// Query to fetch all users with the role "seller"
-	filter := bson.M{"roles": "seller"}
+	filter := bson.M{
+		"$or": []bson.M{
+			{"roles": "seller"},
+			{"store_status": "rejected"},
+		},
+	}
 	cursor, err := collection.Find(context.Background(), filter)
 	if err != nil {
 		log.Println("Error fetching sellers:", err)
@@ -238,6 +244,7 @@ func GetSellers(c *fiber.Ctx) error {
 				"store_name":   getStringOrDefault(seller, "store_info", "store_name"),
 				"full_address": getStringOrDefault(seller, "store_info", "full_address"),
 				"nik":          getStringOrDefault(seller, "store_info", "nik"),
+				"photo_path":   getStringOrDefault(seller, "store_info", "photo_path"),
 			},
 		}
 
@@ -259,6 +266,76 @@ func getStringOrDefault(doc bson.M, key string, nestedKey string) string {
 		}
 	}
 	return ""
+}
+
+// GetUserByID retrieves a user by their ID
+func GetUserByID(c *fiber.Ctx) error {
+	// Ambil ID dari URL parameter
+	userID := c.Params("id")
+
+	// Buat filter untuk query
+	var filter bson.M
+	if len(userID) == 24 {
+		// Jika ID valid sebagai ObjectID
+		objectID, err := primitive.ObjectIDFromHex(userID)
+		if err == nil {
+			filter = bson.M{"_id": objectID}
+		}
+	} else {
+		// Jika ID bukan ObjectID, gunakan sebagai string
+		filter = bson.M{"_id": userID}
+	}
+
+	// Ambil koleksi user
+	userCollection := config.MongoClient.Database("ecommerce").Collection("users")
+
+	// Cari user berdasarkan ID
+	var user model.User
+	err := userCollection.FindOne(context.Background(), filter).Decode(&user)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{
+			"status":  "error",
+			"message": "User not found",
+		})
+	}
+
+	// Siapkan respons dengan data user
+	response := fiber.Map{
+		"id":       user.ID.Hex(),
+		"username": user.Username,
+		"email":    user.Email,
+		"roles":    user.Roles,
+		"store_name": func() string {
+			if user.StoreInfo != nil {
+				return user.StoreInfo.StoreName
+			}
+			return ""
+		}(),
+		"full_address": func() string {
+			if user.StoreInfo != nil {
+				return user.StoreInfo.FullAddress
+			}
+			return ""
+		}(),
+		"nik": func() string {
+			if user.StoreInfo != nil {
+				return user.StoreInfo.NIK
+			}
+			return ""
+		}(),
+		"store_status": func() string {
+			if user.StoreStatus != nil {
+				return *user.StoreStatus
+			}
+			return "not_available"
+		}(),
+	}
+
+	// Kembalikan data user
+	return c.JSON(fiber.Map{
+		"status": "success",
+		"data":   response,
+	})
 }
 
 func GetSellerByID(c *fiber.Ctx) error {
