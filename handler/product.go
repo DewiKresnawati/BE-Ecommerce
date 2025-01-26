@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func CreateProduct(c *fiber.Ctx) error {
@@ -32,18 +33,22 @@ func CreateProduct(c *fiber.Ctx) error {
 		})
 	}
 
-	price, err := strconv.ParseInt(form.Value["price"][0], 10, 64)
+	// Konversi price dari int64 ke int
+	price64, err := strconv.ParseInt(form.Value["price"][0], 10, 64)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Invalid price format",
 			"error":   err.Error(),
 		})
 	}
+	price := int(price64) // Konversi ke int
 
-	discount, err := strconv.ParseInt(form.Value["discount"][0], 10, 64)
+	// Konversi discount dari int64 ke int
+	discount64, err := strconv.ParseInt(form.Value["discount"][0], 10, 64)
 	if err != nil {
-		discount = 0 // Default discount jika tidak valid
+		discount64 = 0 // Default discount jika tidak valid
 	}
+	discount := int(discount64) // Konversi ke int
 
 	sellerID, err := primitive.ObjectIDFromHex(form.Value["seller_id"][0])
 	if err != nil {
@@ -94,22 +99,12 @@ func CreateProduct(c *fiber.Ctx) error {
 		imagePath = "" // Default jika tidak ada gambar
 	}
 
-	// Validate seller
-	userCollection := config.MongoClient.Database("ecommerce").Collection("users")
-	var seller model.User
-	err = userCollection.FindOne(context.Background(), bson.M{"_id": sellerID}).Decode(&seller)
-	if err != nil || seller.StoreStatus == nil || *seller.StoreStatus != "approved" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid or inactive seller",
-		})
-	}
-
 	// Prepare product data
 	product := model.Product{
 		ID:            primitive.NewObjectID(),
 		Name:          name[0],
-		Price:         price,
-		Discount:      discount,
+		Price:         price,     // Menggunakan konversi ke int
+		Discount:      discount,  // Menggunakan konversi ke int
 		SellerID:      sellerID,
 		CategoryID:    categoryID,
 		SubCategoryID: subCategoryID,
@@ -130,6 +125,46 @@ func CreateProduct(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message":    "Product created successfully",
 		"product_id": result.InsertedID,
+	})
+}
+
+
+func DeleteProductByID(c *fiber.Ctx) error {
+	// Ambil ID produk dari parameter URL
+	productID := c.Params("id")
+
+	// Konversi ID ke ObjectID MongoDB
+	objectID, err := primitive.ObjectIDFromHex(productID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid product ID format",
+			"error":   err.Error(),
+		})
+	}
+
+	// Ambil koleksi produk dari database
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+
+	// Cari dan hapus produk berdasarkan ID
+	result, err := productCollection.DeleteOne(context.Background(), bson.M{"_id": objectID})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to delete product",
+			"error":   err.Error(),
+		})
+	}
+
+	// Periksa apakah produk ditemukan dan dihapus
+	if result.DeletedCount == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Product not found",
+		})
+	}
+
+	// Berikan respons berhasil
+	return c.JSON(fiber.Map{
+		"message": "Product deleted successfully",
+		"status":  "success",
 	})
 }
 
@@ -224,18 +259,39 @@ func GetAllProducts(c *fiber.Ctx) error {
 	// Ambil koleksi produk dari MongoDB
 	collection := config.MongoClient.Database("ecommerce").Collection("products")
 
-	// Ambil semua produk dari koleksi
-	cursor, err := collection.Find(c.Context(), bson.M{})
+	// Pipeline agregasi
+	pipeline := mongo.Pipeline{
+		// Lookup kategori berdasarkan category_id
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "categories"},          // Koleksi yang di-lookup
+			{Key: "localField", Value: "category_id"},   // Field di koleksi "products"
+			{Key: "foreignField", Value: "_id"},         // Field di koleksi "categories"
+			{Key: "as", Value: "category"},              // Alias hasil lookup
+		}}},
+		// Lookup sub-kategori berdasarkan sub_category_id
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "categories"},          // Koleksi yang di-lookup
+			{Key: "localField", Value: "sub_category_id"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "sub_category"},
+		}}},
+		// Hilangkan array kategori dan sub-kategori (ubah menjadi objek tunggal)
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$category"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$sub_category"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+	}
+
+	// Jalankan agregasi
+	cursor, err := collection.Aggregate(c.Context(), pipeline)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
-			"message": "Failed to fetch products",
+			"message": "Failed to fetch products with categories",
 		})
 	}
 	defer cursor.Close(c.Context())
 
-	// Decode produk ke slice
-	var products []model.Product
+	// Decode hasil agregasi ke slice
+	var products []bson.M
 	if err := cursor.All(c.Context(), &products); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
@@ -243,13 +299,14 @@ func GetAllProducts(c *fiber.Ctx) error {
 		})
 	}
 
-	// Kembalikan daftar produk
+	// Kembalikan daftar produk dengan kategori dan sub-kategori
 	return c.JSON(fiber.Map{
 		"status":  "success",
 		"message": "Products fetched successfully",
 		"data":    products,
 	})
 }
+
 
 func GetProductsUnderPrice(c *fiber.Ctx) error {
 	priceLimit := 100000.0

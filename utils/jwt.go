@@ -20,6 +20,7 @@ func init() {
 
 // Inisialisasi JWT secret dari environment
 var jwtSecret = []byte(os.Getenv("JWT_SECRET_KEY"))
+
 const tokenExpiry = 24 * time.Hour // Token valid selama 24 jam
 
 // GenerateJWT membuat dan menandatangani JWT token

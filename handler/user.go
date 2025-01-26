@@ -3,10 +3,13 @@ package handler
 import (
 	"be_ecommerce/config"
 	"be_ecommerce/model"
+	"be_ecommerce/utils"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
@@ -50,20 +53,349 @@ func GetCustomers(c *fiber.Ctx) error {
 			"username":  customer["username"],
 			"email":     customer["email"],
 			"roles":     customer["roles"],
-			"suspended": false, // Default jika tidak ada informasi tentang suspend
 		}
-
-		// Hanya tambahkan informasi `suspended` jika relevan
-		if suspended, ok := customer["suspended"].(bool); ok {
-			transformed["suspended"] = suspended
-		}
-
 		transformedCustomers = append(transformedCustomers, transformed)
 	}
 
 	// Kembalikan data ke frontend
 	return c.JSON(transformedCustomers)
 }
+
+func GetUserProfile(c *fiber.Ctx) error {
+	// Ambil token dari header Authorization
+	token := c.Get("Authorization")
+	if token == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Authorization token is required",
+		})
+	}
+
+	// Hapus prefix "Bearer " dari token
+	token = strings.TrimPrefix(token, "Bearer ")
+
+	// Validasi token dan ambil klaim
+	claims, err := utils.ValidateJWT(token)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid or expired token",
+		})
+	}
+
+	// Ambil user_id dari klaim
+	userID, ok := claims["user_id"].(string)
+	if !ok || userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid token payload",
+		})
+	}
+
+	// Konversi user_id ke ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid user ID format",
+		})
+	}
+
+	// Ambil data pengguna dari database
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	var user model.User
+	err = collection.FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"message": "User not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to fetch user data",
+		})
+	}
+
+	// Siapkan respons dengan data user (hapus password)
+	user.Password = ""
+	response := fiber.Map{
+		"id":       user.ID.Hex(),
+		"username": user.Username,
+		"email":    user.Email,
+		"roles":    user.Roles,
+	}
+
+	// Tambahkan `store_status` jika ada
+	if user.StoreStatus != nil {
+		response["store_status"] = *user.StoreStatus
+	}
+
+	// Tambahkan `store_info` jika ada
+	if user.StoreInfo != nil {
+		response["store_info"] = user.StoreInfo
+	}
+
+	// Kembalikan respons
+	return c.JSON(fiber.Map{
+		"message": "User profile fetched successfully",
+		"data":    response,
+	})
+}
+
+func EditProfile(c *fiber.Ctx) error {
+	// Ambil token dari header Authorization
+	authHeader := c.Get("Authorization")
+	if authHeader == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Authorization token is required",
+		})
+	}
+
+	// Periksa format Bearer token
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid token format",
+		})
+	}
+
+	// Validasi token
+	claims, err := utils.ValidateJWT(token)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid or expired token",
+		})
+	}
+
+	// Ambil user ID dari klaim token
+	userID, ok := claims["user_id"].(string)
+	if !ok || userID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid token payload",
+		})
+	}
+
+	// Konversi user ID ke ObjectID
+	objectID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid user ID",
+		})
+	}
+
+	// Parsing data dari request body
+	var updatedData struct {
+		Username string `json:"username"`
+	}
+	if err := c.BodyParser(&updatedData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
+
+	// Validasi username
+	if updatedData.Username == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Username cannot be empty",
+		})
+	}
+
+	// Update username di database
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	_, err = collection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": objectID},
+		bson.M{"$set": bson.M{
+			"username": updatedData.Username,
+		}},
+	)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to update profile",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Profile updated successfully",
+	})
+}
+
+func VerifyOTP(c *fiber.Ctx) error {
+	// Parsing data dari request body
+	var body struct {
+		Email      string `json:"email"`
+		ResetToken string `json:"reset_token"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		log.Println("Error parsing request body:", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
+
+	log.Println("Verifying OTP for email:", body.Email, "with token:", body.ResetToken)
+
+	// Cek token reset
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	var user model.User
+	err := collection.FindOne(
+		context.Background(),
+		bson.M{"email": body.Email, "reset_token": body.ResetToken},
+	).Decode(&user)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			log.Println("Invalid or expired token for email:", body.Email)
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "Invalid OTP",
+			})
+		}
+		log.Println("Database error:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Server error",
+		})
+	}
+
+	// Periksa apakah token telah kedaluwarsa
+	if time.Now().After(user.ResetTokenExpiry) {
+		log.Println("OTP expired for email:", body.Email)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "OTP expired",
+		})
+	}
+
+	log.Println("OTP verified successfully for email:", body.Email)
+	return c.JSON(fiber.Map{
+		"message": "OTP verified successfully",
+	})
+}
+
+func SendPasswordResetEmail(c *fiber.Ctx) error {
+	// Parsing email dari request body
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		log.Println("Error parsing request body:", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
+
+	// Cek apakah email terdaftar di database
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	var user model.User
+	err := collection.FindOne(context.Background(), bson.M{"email": body.Email}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			log.Println("Email not found in database:", body.Email)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"message": "Email not found",
+			})
+		}
+		log.Println("Database error while fetching user:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to fetch user data",
+		})
+	}
+
+	// Generate OTP dan expiry time
+	resetToken := utils.GenerateRandomToken(6) // Contoh fungsi utilitas untuk membuat token OTP
+	expiry := time.Now().Add(10 * time.Minute) // OTP berlaku selama 10 menit
+
+	// Simpan OTP dan expiry ke database
+	_, err = collection.UpdateOne(
+		context.Background(),
+		bson.M{"email": body.Email},
+		bson.M{"$set": bson.M{
+			"reset_token":       resetToken,
+			"reset_token_expiry": expiry,
+		}},
+	)
+	if err != nil {
+		log.Println("Error saving OTP to database:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to save OTP",
+		})
+	}
+
+	// Kirim OTP ke email pengguna
+	err = utils.SendEmail(body.Email, "Password Reset", fmt.Sprintf("Your OTP: %s", resetToken))
+	if err != nil {
+		log.Println("Error sending email:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to send email",
+		})
+	}
+
+	log.Println("Password reset email sent successfully to:", body.Email)
+	return c.JSON(fiber.Map{
+		"message": "Password reset email sent successfully",
+	})
+}
+
+func ResetPassword(c *fiber.Ctx) error {
+	// Parsing data dari request body
+	var body struct {
+		Email       string `json:"email"`
+		ResetToken  string `json:"reset_token"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
+
+	// Validasi reset token
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	var user model.User
+	err := collection.FindOne(context.Background(), bson.M{
+		"email":       body.Email,
+		"reset_token": body.ResetToken,
+	}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"message": "Invalid or expired reset token",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to verify reset token",
+		})
+	}
+
+	// Cek apakah token sudah kedaluwarsa
+	if time.Now().After(user.ResetTokenExpiry) {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Reset token expired",
+		})
+	}
+
+	// Hash password baru
+	hashedPassword, err := utils.HashPassword(body.NewPassword)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to hash password",
+		})
+	}
+
+	// Update password dan hapus reset token
+	_, err = collection.UpdateOne(
+		context.Background(),
+		bson.M{"email": body.Email},
+		bson.M{
+			"$set": bson.M{"password": hashedPassword},
+			"$unset": bson.M{"reset_token": "", "reset_token_expiry": ""},
+		},
+	)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to update password",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Password reset successfully",
+	})
+}
+
 
 // Fungsi untuk hashing password
 func hashPassword(password string) (string, error) {

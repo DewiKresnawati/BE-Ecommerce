@@ -10,17 +10,30 @@ func SetupRoutes(app *fiber.App) {
 	// Auth routes
 	app.Post("/register", handler.Register)
 	app.Post("/login", handler.Login)
-
+	app.Get("/users/me", handler.GetUserProfile)
+	app.Put("/users/update-profile", handler.EditProfile)
+	app.Put("/users/reset-password", handler.ResetPassword)
+	app.Post("/users/send-password-reset-email", handler.SendPasswordResetEmail)
+	app.Post("/users/verify-otp", handler.VerifyOTP)
 	// Product routes
 	app.Post("/products", handler.CreateProduct)
 	app.Get("/products", handler.GetAllProducts)
 	app.Get("/products/:id", handler.GetProductDetail)
 	app.Get("/products/:product_id/rating", handler.GetProductRating)
+	// Endpoint untuk mendapatkan produk berdasarkan ID
+	app.Get("/products/:id", handler.GetProductByID)
+	app.Put("/products/:id", handler.UpdateProductByID)
+	app.Delete("/products/:id", handler.DeleteProductByID)
+
 	app.Static("/uploads", "./uploads")
 
-	app.Post("/categories", handler.AddCategory)        // Tambahkan kategori baru
-	app.Post("/categories/sub", handler.AddSubCategory) // Tambahkan sub-kategori ke kategori
-	app.Get("/categories", handler.GetCategories)       // Dapatkan semua kategori dan sub-kategori
+	app.Post("/categories", handler.AddCategory)                 // Tambahkan kategori baru
+	app.Post("/categories/sub", handler.AddSubCategory)          // Tambahkan sub-kategori ke kategori
+	app.Get("/categories", handler.GetCategories)                // Dapatkan semua kategori dan sub-kategori
+	app.Put("/categories/:id", handler.UpdateCategory)           // Update kategori berdasarkan ID
+	app.Put("/categories/sub/:id", handler.UpdateSubCategory)    // Update sub-kategori berdasarkan ID
+	app.Delete("/categories/:id", handler.DeleteCategory)        // Hapus kategori berdasarkan ID
+	app.Delete("/categories/sub/:id", handler.DeleteSubCategory) // Hapus sub-kategori berdasarkan ID
 
 	app.Post("/reviews", handler.AddReview)                 // Tambahkan review baru
 	app.Get("/reviews/:product_id", handler.GetReviews)     // Ambil semua review untuk produk
@@ -63,9 +76,6 @@ func SetupRoutes(app *fiber.App) {
 
 	// routes untuk pembayaran
 	app.Post("/payment", handler.CreatePayment)
-
-	// Endpoint untuk mendapatkan produk berdasarkan ID
-	app.Get("/products/:id", handler.GetProductByID)
 
 	app.Get("/sellers/:id", handler.GetSellerByID)
 

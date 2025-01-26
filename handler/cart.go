@@ -105,28 +105,38 @@ func FetchCart(c *fiber.Ctx) error {
 	for i, item := range cart.Products {
 		// Ambil data produk berdasarkan product_id
 		var product model.Product
-		productID, _ := primitive.ObjectIDFromHex(item.ProductID)
-		err := productCollection.FindOne(context.Background(), bson.M{"_id": productID}).Decode(&product)
+		productID, err := primitive.ObjectIDFromHex(item.ProductID)
 		if err != nil {
-			// Jika produk tidak ditemukan, gunakan data default
-			products[i] = fiber.Map{
-				"product_id":  item.ProductID,
-				"name":        "Unknown Product",
-				"image":       "/images/default.jpg", // Gambar default jika tidak ditemukan
-				"price":       item.Price,
-				"quantity":    item.Quantity,
-				"total_price": float64(item.Price) * float64(item.Quantity), // Konversi ke float64
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product_id"})
+		}
+
+		err = productCollection.FindOne(context.Background(), bson.M{"_id": productID}).Decode(&product)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				// Jika produk tidak ditemukan, gunakan data default
+				products[i] = fiber.Map{
+					"product_id":  item.ProductID,
+					"name":        "Unknown Product",
+					"image":       "/images/default.jpg", // Gambar default jika tidak ditemukan
+					"price":       item.Price,
+					"quantity":    item.Quantity,
+					"total_price": item.Price * item.Quantity,
+				}
+				continue
 			}
-		} else {
-			// Jika produk ditemukan, gunakan data dari database
-			products[i] = fiber.Map{
-				"product_id":  product.ID.Hex(),
-				"name":        product.Name,
-				"image":       product.Image,
-				"price":       product.Price,
-				"quantity":    item.Quantity,
-				"total_price": float64(product.Price) * float64(item.Quantity), // Konversi ke float64
-			}
+
+			// Jika terjadi kesalahan lain, kembalikan status error
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to fetch product details"})
+		}
+
+		// Jika produk ditemukan, gunakan data dari database
+		products[i] = fiber.Map{
+			"product_id":  product.ID.Hex(),
+			"name":        product.Name,
+			"image":       product.Image,
+			"price":       product.Price,
+			"quantity":    item.Quantity,
+			"total_price": product.Price * item.Quantity,
 		}
 	}
 

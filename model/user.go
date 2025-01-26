@@ -1,6 +1,10 @@
 package model
 
-import "go.mongodb.org/mongo-driver/bson/primitive"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 // LoginRequest represents a user login payload
 type LoginRequest struct {
@@ -17,6 +21,8 @@ type User struct {
 	Roles       []string           `json:"roles" bson:"roles"`
 	StoreStatus *string            `json:"store_status,omitempty" bson:"store_status,omitempty"`
 	StoreInfo   *StoreInfo         `json:"store_info,omitempty" bson:"store_info,omitempty"`
+	ResetToken       string             `json:"reset_token,omitempty" bson:"reset_token,omitempty"`
+	ResetTokenExpiry time.Time          `json:"reset_token_expiry,omitempty" bson:"reset_token_expiry,omitempty"`
 }
 type StoreInfo struct {
 	StoreName   string `json:"store_name" bson:"store_name"`
