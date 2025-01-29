@@ -74,8 +74,10 @@ func SetupRoutes(app *fiber.App) {
 	app.Put("/customer-sellers/:id", handler.UpdateCustomerSeller)
 	app.Delete("/customer-sellers/:id", handler.DeleteCustomerSeller)
 
-	// routes untuk pembayaran
-	app.Post("/payment", handler.CreatePayment)
+	app.Post("/checkout", handler.CheckoutHandler)
+	app.Get("/orders", handler.GetOrdersHandler)
+	app.Get("/orders/:order_id", handler.GetOrderDetailsHandler)
+	app.Post("/payment", handler.CreatePaymentHandler)
 
 	app.Get("/sellers/:id", handler.GetSellerByID)
 
@@ -84,4 +86,5 @@ func SetupRoutes(app *fiber.App) {
 	// Endpoint untuk store
 	app.Get("/stores/:id", handler.GetStoreDetails) // Mendapatkan detail store dan produk terkait
 
+	app.Get("/dashboard-data", handler.GetDashboardData)
 }
