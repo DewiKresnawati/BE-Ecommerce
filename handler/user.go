@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -783,6 +784,208 @@ func UpdateSeller(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Seller updated successfully",
 	})
+}
+
+func UpdateProductForSeller(c *fiber.Ctx) error {
+    // Ambil token dari header Authorization
+    token := c.Get("Authorization")
+    if token == "" {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "message": "Unauthorized: Missing token",
+        })
+    }
+
+    // Validasi token dan ambil klaim
+    claims, err := utils.ValidateJWT(token[7:]) // Hapus prefix "Bearer "
+    if err != nil {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "message": "Unauthorized: Invalid token",
+        })
+    }
+
+    // Ambil user_id dari klaim
+    userID, ok := claims["user_id"].(string)
+    if !ok || userID == "" {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "message": "Unauthorized: Invalid user ID",
+        })
+    }
+
+    // Konversi user_id ke ObjectID
+    sellerID, err := primitive.ObjectIDFromHex(userID)
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "message": "Invalid User ID format",
+        })
+    }
+
+    // Ambil product_id dari parameter
+    productID := c.Params("id")
+    objectID, err := primitive.ObjectIDFromHex(productID)
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "message": "Invalid Product ID format",
+        })
+    }
+
+    // Cari produk berdasarkan ID dan pastikan milik seller
+    productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+    var existingProduct model.Product
+    err = productCollection.FindOne(context.Background(), bson.M{"_id": objectID, "seller_id": sellerID}).Decode(&existingProduct)
+    if err != nil {
+        return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+            "message": "Forbidden: You do not have permission to update this product",
+        })
+    }
+
+    // Parse form data
+    form, err := c.MultipartForm()
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "message": "Invalid form data",
+            "error":   err.Error(),
+        })
+    }
+
+    updateData := bson.M{}
+
+    if len(form.Value["name"]) > 0 {
+        updateData["name"] = form.Value["name"][0]
+    }
+
+    if len(form.Value["price"]) > 0 {
+        price, err := strconv.Atoi(form.Value["price"][0])
+        if err == nil {
+            updateData["price"] = price
+        }
+    }
+
+    if len(form.Value["stock"]) > 0 {
+        stock, err := strconv.Atoi(form.Value["stock"][0])
+        if err == nil {
+            updateData["stock"] = stock
+        }
+    }
+
+    if len(form.Value["discount"]) > 0 {
+        discount, err := strconv.Atoi(form.Value["discount"][0])
+        if err == nil {
+            updateData["discount"] = discount
+        }
+    }
+
+    if len(form.Value["description"]) > 0 {
+        updateData["description"] = form.Value["description"][0]
+    }
+
+    if len(form.Value["category_id"]) > 0 {
+        categoryID, err := primitive.ObjectIDFromHex(form.Value["category_id"][0])
+        if err == nil {
+            updateData["category_id"] = categoryID
+        }
+    }
+
+    if len(form.Value["sub_category_id"]) > 0 {
+        subCategoryID, err := primitive.ObjectIDFromHex(form.Value["sub_category_id"][0])
+        if err == nil {
+            updateData["sub_category_id"] = subCategoryID
+        }
+    }
+
+    // **Update Image jika ada upload file baru**
+    fileHeaders := form.File["image"]
+    if len(fileHeaders) > 0 {
+        file := fileHeaders[0]
+        imagePath := fmt.Sprintf("./uploads/%s", file.Filename)
+
+        // Simpan gambar baru
+        if err := c.SaveFile(file, imagePath); err != nil {
+            return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+                "message": "Failed to save image",
+                "error":   err.Error(),
+            })
+        }
+
+        updateData["image"] = imagePath
+    }
+
+    // Update produk di database
+    _, err = productCollection.UpdateOne(context.Background(), bson.M{"_id": objectID}, bson.M{"$set": updateData})
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "message": "Failed to update product",
+            "error":   err.Error(),
+        })
+    }
+
+    return c.JSON(fiber.Map{
+        "message": "Product updated successfully",
+        "status":  "success",
+    })
+}
+
+func DeleteProductForSeller(c *fiber.Ctx) error {
+    // Ambil token dari header Authorization
+    token := c.Get("Authorization")
+    if token == "" {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "message": "Unauthorized: Missing token",
+        })
+    }
+
+    // Validasi token dan ambil klaim
+    claims, err := utils.ValidateJWT(token[7:]) // Hapus prefix "Bearer "
+    if err != nil {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "message": "Unauthorized: Invalid token",
+        })
+    }
+
+    // Ambil user_id dari klaim
+    userID, ok := claims["user_id"].(string)
+    if !ok || userID == "" {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "message": "Unauthorized: Invalid user ID",
+        })
+    }
+
+    // Konversi user_id ke ObjectID
+    sellerID, err := primitive.ObjectIDFromHex(userID)
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "message": "Invalid User ID format",
+        })
+    }
+
+    // Ambil product_id dari parameter
+    productID := c.Params("id")
+    objectID, err := primitive.ObjectIDFromHex(productID)
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "message": "Invalid Product ID format",
+        })
+    }
+
+    // Hapus hanya jika produk milik seller
+    productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+    result, err := productCollection.DeleteOne(context.Background(), bson.M{"_id": objectID, "seller_id": sellerID})
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "message": "Failed to delete product",
+            "error":   err.Error(),
+        })
+    }
+
+    if result.DeletedCount == 0 {
+        return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+            "message": "Forbidden: You do not have permission to delete this product",
+        })
+    }
+
+    return c.JSON(fiber.Map{
+        "message": "Product deleted successfully",
+        "status":  "success",
+    })
 }
 
 func DeleteSeller(c *fiber.Ctx) error {

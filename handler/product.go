@@ -167,7 +167,160 @@ func DeleteProductByID(c *fiber.Ctx) error {
 		"status":  "success",
 	})
 }
+func CreateSellerProduct(c *fiber.Ctx) error {
+	// Ambil seller_id dari token (middleware JWT harus sudah diterapkan sebelumnya)
+	sellerID, err := utils.GetUserIDFromToken(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized", "error": err.Error()})
+	}
 
+	// Parse multipart form
+	form, err := c.MultipartForm()
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid form data", "error": err.Error()})
+	}
+
+	// Ambil dan validasi field
+	name := form.Value["name"]
+	if len(name) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Product name is required"})
+	}
+
+	price, err := strconv.Atoi(form.Value["price"][0])
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid price format", "error": err.Error()})
+	}
+
+	discount, _ := strconv.Atoi(form.Value["discount"][0])
+
+	categoryID, _ := primitive.ObjectIDFromHex(form.Value["category_id"][0])
+	subCategoryID, _ := primitive.ObjectIDFromHex(form.Value["sub_category_id"][0])
+
+	description := form.Value["description"][0]
+
+	// Handle file upload
+	var imagePath string
+	fileHeaders := form.File["image"]
+	if len(fileHeaders) > 0 {
+		file := fileHeaders[0]
+		imagePath = fmt.Sprintf("./uploads/%s", file.Filename)
+
+		// Simpan file gambar
+		if err := c.SaveFile(file, imagePath); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to save image", "error": err.Error()})
+		}
+	} else {
+		imagePath = ""
+	}
+
+	// Simpan produk ke database
+	product := model.Product{
+		ID:            primitive.NewObjectID(),
+		Name:          name[0],
+		Price:         price,
+		Discount:      discount,
+		SellerID:      sellerID,
+		CategoryID:    categoryID,
+		SubCategoryID: subCategoryID,
+		Description:   description,
+		Image:         imagePath,
+	}
+
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+	result, err := productCollection.InsertOne(context.Background(), product)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to save product", "error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"message": "Product created successfully", "product_id": result.InsertedID})
+}
+
+// **2. Update Product for Seller**
+func UpdateSellerProductByID(c *fiber.Ctx) error {
+	// Ambil seller_id dari token
+	sellerID, err := utils.GetUserIDFromToken(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized", "error": err.Error()})
+	}
+
+	// Ambil ID produk dari parameter URL
+	productID := c.Params("id")
+	objectID, err := primitive.ObjectIDFromHex(productID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID format", "error": err.Error()})
+	}
+
+	// Parse form data
+	form, err := c.MultipartForm()
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid form data", "error": err.Error()})
+	}
+
+	name := form.Value["name"][0]
+	price, _ := strconv.Atoi(form.Value["price"][0])
+	discount, _ := strconv.Atoi(form.Value["discount"][0])
+	categoryID, _ := primitive.ObjectIDFromHex(form.Value["category_id"][0])
+	subCategoryID, _ := primitive.ObjectIDFromHex(form.Value["sub_category_id"][0])
+	description := form.Value["description"][0]
+
+	// Handle file upload
+	var imagePath string
+	fileHeaders := form.File["image"]
+	if len(fileHeaders) > 0 {
+		file := fileHeaders[0]
+		imagePath = fmt.Sprintf("./uploads/%s", file.Filename)
+		c.SaveFile(file, imagePath)
+	}
+
+	updateData := bson.M{
+		"name":            name,
+		"price":           price,
+		"discount":        discount,
+		"category_id":     categoryID,
+		"sub_category_id": subCategoryID,
+		"description":     description,
+	}
+
+	if imagePath != "" {
+		updateData["image"] = imagePath
+	}
+
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+
+	// Pastikan produk dimiliki oleh seller yang sedang login
+	result, err := productCollection.UpdateOne(context.Background(), bson.M{"_id": objectID, "seller_id": sellerID}, bson.M{"$set": updateData})
+	if err != nil || result.MatchedCount == 0 {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Failed to update product or product not found"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Product updated successfully"})
+}
+
+// **3. Delete Product for Seller**
+func DeleteSellerProductByID(c *fiber.Ctx) error {
+	// Ambil seller_id dari token
+	sellerID, err := utils.GetUserIDFromToken(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized", "error": err.Error()})
+	}
+
+	// Ambil ID produk dari parameter URL
+	productID := c.Params("id")
+	objectID, err := primitive.ObjectIDFromHex(productID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID format", "error": err.Error()})
+	}
+
+	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
+
+	// Pastikan produk dimiliki oleh seller yang sedang login
+	result, err := productCollection.DeleteOne(context.Background(), bson.M{"_id": objectID, "seller_id": sellerID})
+	if err != nil || result.DeletedCount == 0 {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"message": "Failed to delete product or product not found"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Product deleted successfully"})
+}
 func GetProductDetail(c *fiber.Ctx) error {
 	productID := c.Params("id")
 
@@ -463,31 +616,37 @@ func CreateProductForSeller(c *fiber.Ctx) error {
 		})
 	}
 
-	// Parse request body
-	var product model.Product
-	if err := c.BodyParser(&product); err != nil {
+	// Parse multipart form untuk upload gambar
+	form, err := c.MultipartForm()
+	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid request body",
+			"message": "Invalid form data",
+			"error":   err.Error(),
 		})
 	}
 
-	// Tambahkan SellerID ke produk
-	product.SellerID = objectID
+	// Ambil data dari form
+	name := form.Value["name"][0]
+	price, _ := strconv.Atoi(form.Value["price"][0])
+	discount, _ := strconv.Atoi(form.Value["discount"][0])
+	stock, _ := strconv.Atoi(form.Value["stock"][0])
+	categoryID, _ := primitive.ObjectIDFromHex(form.Value["category_id"][0])
+	subCategoryID, _ := primitive.ObjectIDFromHex(form.Value["sub_category_id"][0])
+	description := form.Value["description"][0]
 
-	// Validasi CategoryID dan SubCategoryID
+	// Validasi kategori dan subkategori
 	categoryCollection := config.MongoClient.Database("ecommerce").Collection("categories")
 	var category model.Category
-	err = categoryCollection.FindOne(context.Background(), bson.M{"_id": product.CategoryID}).Decode(&category)
+	err = categoryCollection.FindOne(context.Background(), bson.M{"_id": categoryID}).Decode(&category)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Invalid Category ID",
 		})
 	}
 
-	// Periksa apakah SubCategoryID valid
 	subCategoryExists := false
 	for _, subCat := range category.SubCategories {
-		if subCat.ID == product.SubCategoryID {
+		if subCat.ID == subCategoryID {
 			subCategoryExists = true
 			break
 		}
@@ -498,9 +657,39 @@ func CreateProductForSeller(c *fiber.Ctx) error {
 		})
 	}
 
+	// Handle file upload (jika ada)
+	var imagePath string
+	fileHeaders := form.File["image"]
+	if len(fileHeaders) > 0 {
+		file := fileHeaders[0]
+		imagePath = fmt.Sprintf("uploads/%s", file.Filename)
+
+		// Simpan file ke folder `uploads/`
+		if err := c.SaveFile(file, imagePath); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"message": "Failed to save image",
+				"error":   err.Error(),
+			})
+		}
+	} else {
+		imagePath = "uploads/default.png" // Gambar default jika tidak ada gambar diunggah
+	}
+
 	// Simpan produk ke database
+	product := model.Product{
+		ID:            primitive.NewObjectID(),
+		Name:          name,
+		Price:         price,
+		Discount:      discount,
+		Stock:         stock,
+		SellerID:      objectID,
+		CategoryID:    categoryID,
+		SubCategoryID: subCategoryID,
+		Description:   description,
+		Image:         imagePath,
+	}
+
 	productCollection := config.MongoClient.Database("ecommerce").Collection("products")
-	product.ID = primitive.NewObjectID()
 	result, err := productCollection.InsertOne(context.Background(), product)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -511,5 +700,6 @@ func CreateProductForSeller(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message":    "Product created successfully",
 		"product_id": result.InsertedID,
+		"image_url":  fmt.Sprintf("%s/%s", "http://localhost:3000", imagePath),
 	})
 }

@@ -6,8 +6,9 @@ import "go.mongodb.org/mongo-driver/bson/primitive"
 type Product struct {
 	ID            primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
 	Name          string             `json:"name" bson:"name"`
-	Price         int              `json:"price" bson:"price"`
-	Discount      int              `json:"discount" bson:"discount"`
+	Price         int                `json:"price" bson:"price"`
+	Stock 		  int 				 `json:"stock" bson:"stock"`
+	Discount      int                `json:"discount" bson:"discount"`
 	Image         string             `json:"image" bson:"image"`
 	Description   string             `json:"description" bson:"description"`
 	SellerID      primitive.ObjectID `json:"seller_id" bson:"seller_id"`

@@ -94,11 +94,11 @@ func BecomeSeller(c *fiber.Ctx) error {
 		})
 	}
 
-	// Filter untuk mencari user berdasarkan ID dan role "customer"
-	filter := bson.M{
-		"_id":   objectID,
-		"roles": "customer",
-	}
+	// Buat seller_id baru
+	sellerID := primitive.NewObjectID()
+
+	// Filter untuk mencari user berdasarkan ID
+	filter := bson.M{"_id": objectID}
 
 	// Update data user menjadi seller
 	update := bson.M{
@@ -107,12 +107,13 @@ func BecomeSeller(c *fiber.Ctx) error {
 				"store_name":   storeName,
 				"full_address": fullAddress,
 				"nik":          nik,
-				"photo_path":   photoPath, // Simpan path foto
+				"photo_path":   photoPath,
 			},
-			"store_status": "pending", // Status awal aplikasi menjadi seller
+			"store_status": "pending",  // 🔹 Toko baru dibuat, status default "pending"
+			"seller_id":    sellerID, // 🔹 Tambahkan seller_id ke user
 		},
 		"$addToSet": bson.M{
-			"roles": "seller", // Tambahkan role seller jika belum ada
+			"roles": "seller",
 		},
 	}
 
@@ -123,12 +124,11 @@ func BecomeSeller(c *fiber.Ctx) error {
 	result, err := collection.UpdateOne(context.Background(), filter, update)
 	if err != nil {
 		log.Println("Error updating user to become seller:", err)
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Failed to update user",
 		})
 	}
 
-	// Jika tidak ada dokumen yang diubah, berarti user tidak ditemukan atau sudah menjadi seller
 	if result.ModifiedCount == 0 {
 		log.Println("No user updated. Either user not found or already a seller:", userID)
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{
@@ -136,10 +136,11 @@ func BecomeSeller(c *fiber.Ctx) error {
 		})
 	}
 
-	// Berhasil
 	log.Println("User successfully updated to become seller:", userID)
 	return c.JSON(fiber.Map{
 		"message":    "User successfully became a seller",
-		"photo_path": photoPath, // Path foto untuk referensi
+		"seller_id":  sellerID.Hex(), // 🔹 Return seller_id agar bisa disimpan di FE
+		"store_status": "pending", // 🔹 Status toko dikembalikan ke FE
+		"photo_path": photoPath,
 	})
 }

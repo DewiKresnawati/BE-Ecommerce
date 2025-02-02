@@ -67,6 +67,8 @@ func SetupRoutes(app *fiber.App) {
 	app.Delete("/sellers/:id", handler.DeleteSeller)
 	app.Get("/seller/products", handler.GetProductsByUserID)
 	app.Post("/seller/products", handler.CreateProductForSeller)
+	app.Put("/seller/products/:id", handler.UpdateProductForSeller)
+	app.Delete("/seller/products/:id", handler.DeleteProductForSeller)
 
 	// Customer-Seller Routes
 	app.Get("/customer-sellers", handler.GetCustomerSellers)
@@ -75,9 +77,17 @@ func SetupRoutes(app *fiber.App) {
 	app.Delete("/customer-sellers/:id", handler.DeleteCustomerSeller)
 
 	app.Post("/checkout", handler.CheckoutHandler)
-	app.Get("/orders", handler.GetOrdersHandler)
-	app.Get("/orders/:order_id", handler.GetOrderDetailsHandler)
+	app.Get("/orders", handler.GetOrdersBySellerHandler)                      // Get all orders for a user
+	app.Get("/orders/:order_id", handler.GetSellerOrderDetailsHandler)    // Get order details          
+	app.Put("/orders/:order_id", handler.UpdateSellerOrderHandler)    // Update order status
+	app.Put("/orders/status/:order_id", handler.UpdateOrderStatusHandler)    // Update order status
+	app.Delete("/orders/:order_id", handler.DeleteSellerOrderHandler) // Delete an order
 	app.Post("/payment", handler.CreatePaymentHandler)
+
+	app.Get("/orders", handler.GetOrdersHandler)    // Untuk customer
+
+	// Seller melihat order yang berisi produknya
+	app.Get("/seller/orders", handler.GetOrdersBySellerHandler)
 
 	app.Get("/sellers/:id", handler.GetSellerByID)
 

@@ -11,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/crypto/bcrypt"
-	
 )
 
 // Register handles user registration
@@ -71,56 +70,66 @@ func Register(c *fiber.Ctx) error {
 
 // Login handles user login
 func Login(c *fiber.Ctx) error {
-    var req model.LoginRequest
-    if err := c.BodyParser(&req); err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-            "message": "Invalid request body",
-        })
-    }
+	var req model.LoginRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid request body",
+		})
+	}
 
-    // Debug data yang diterima dari frontend
-    fmt.Println("Email:", req.Email)
-    fmt.Println("Password:", req.Password)
+	fmt.Println("Email:", req.Email)
+	fmt.Println("Password:", req.Password)
 
-    // Cari user di database
-    var user model.User
-    collection := config.MongoClient.Database("ecommerce").Collection("users")
-    err := collection.FindOne(c.Context(), bson.M{"email": req.Email}).Decode(&user)
-    if err != nil {
-        fmt.Println("User not found for email:", req.Email)
-        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-            "message": "Invalid email or password",
-        })
-    }
+	// Cari user di database
+	var user model.User
+	collection := config.MongoClient.Database("ecommerce").Collection("users")
+	err := collection.FindOne(c.Context(), bson.M{"email": req.Email}).Decode(&user)
+	if err != nil {
+		fmt.Println("User not found for email:", req.Email)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid email or password",
+		})
+	}
 
-    // Debug hasil user dari database
-    fmt.Println("User found:", user.Email, "Roles:", user.Roles)
+	fmt.Println("User found:", user.Email, "Roles:", user.Roles)
 
-    // Verifikasi password
-    err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
-    if err != nil {
-        fmt.Println("Password mismatch for email:", req.Email)
-        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-            "message": "Invalid email or password",
-        })
-    }
+	// Verifikasi password
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
+	if err != nil {
+		fmt.Println("Password mismatch for email:", req.Email)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Invalid email or password",
+		})
+	}
 
-    // Generate token
-    token, err := utils.GenerateJWT(user.ID.Hex(), user.Roles[0])
-    if err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-            "message": "Could not generate token",
-        })
-    }
+	// Generate token, tambahkan seller_id jika ada
+	var sellerID string
+	if user.SellerID != nil {
+		sellerID = user.SellerID.Hex()
+	}
 
-    // Debug token yang dihasilkan
-    fmt.Println("Generated token:", token)
+	token, err := utils.GenerateJWT(user.ID.Hex(), user.Roles[0], sellerID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Could not generate token",
+		})
+	}
 
-    return c.JSON(fiber.Map{
-        "status": "success",
-        "message": "Login successful",
-        "role": user.Roles[0],
-        "token": token,
-    })
+	fmt.Println("Generated token:", token)
+
+	// Response login
+	response := fiber.Map{
+		"status":  "success",
+		"message": "Login successful",
+		"role":    user.Roles[0],
+		"token":   token,
+		"user_id": user.ID.Hex(),
+	}
+
+	// Jika user memiliki seller_id, tambahkan seller info
+	if sellerID != "" {
+		response["seller_id"] = sellerID
+	}
+
+	return c.JSON(response)
 }
-

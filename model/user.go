@@ -19,6 +19,7 @@ type User struct {
 	Email       string             `json:"email" bson:"email"`
 	Password    string             `json:"password" bson:"password"` // Tambahkan field Password
 	Roles       []string           `json:"roles" bson:"roles"`
+	SellerID    *primitive.ObjectID  `bson:"seller_id,omitempty" json:"seller_id,omitempty"`
 	StoreStatus *string            `json:"store_status,omitempty" bson:"store_status,omitempty"`
 	StoreInfo   *StoreInfo         `json:"store_info,omitempty" bson:"store_info,omitempty"`
 	ResetToken       string             `json:"reset_token,omitempty" bson:"reset_token,omitempty"`
